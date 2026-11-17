@@ -115,9 +115,16 @@ func (f *File) Changes() []*ChangeRecord {
 }
 
 // Catalog assembles the canonical productdata catalog, resolving text keys,
-// groups, and discount groups.
+// groups, and discount groups. B records are applied to the result.
 func (f *File) Catalog() (*productdata.Catalog, error) {
-	return assembleCatalog(f)
+	return assembleCatalog(f, true)
+}
+
+// catalogWithoutChanges assembles the catalog without applying B records. The
+// delivery loader needs this so that deletions and renumbering are applied once,
+// after all article and price files have been merged.
+func (f *File) catalogWithoutChanges() (*productdata.Catalog, error) {
+	return assembleCatalog(f, false)
 }
 
 // Parse reads a DATANORM 5 file from r.

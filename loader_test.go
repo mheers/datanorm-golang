@@ -169,6 +169,28 @@ func TestLoadRenamedFiles(t *testing.T) {
 	}
 }
 
+func TestLoadRenumberInArticleFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := writeFile(t, dir, "DATANORM.002", joinLines(
+		headerMarker("A", "20260115"),
+		aRecord(map[int]string{2: "N", 3: "A-1", 4: "Kabel", 6: "PCE", 7: "1", 8: "1", 9: "100"}),
+		"B;X;A-1;A-2;;",
+		"E;4;Beispiel;",
+	))
+	catalog, err := Load(context.Background(), []string{path})
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(catalog.Articles) != 1 {
+		t.Fatalf("articles = %d, want 1: %+v", len(catalog.Articles), catalog.Articles)
+	}
+	if article := catalog.Articles[0]; article.SupplierArticleNumber != "A-2" {
+		t.Fatalf("article = %q, want A-2", article.SupplierArticleNumber)
+	}
+}
+
 func TestFindDeliveryFiles(t *testing.T) {
 	t.Parallel()
 

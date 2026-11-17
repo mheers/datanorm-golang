@@ -16,7 +16,7 @@ type textLine struct {
 	line   int
 }
 
-func assembleCatalog(file *File) (*productdata.Catalog, error) {
+func assembleCatalog(file *File, applyChanges bool) (*productdata.Catalog, error) {
 	catalog := &productdata.Catalog{
 		Diagnostics: append(productdata.Diagnostics(nil), file.Diagnostics...),
 	}
@@ -50,9 +50,11 @@ func assembleCatalog(file *File) (*productdata.Catalog, error) {
 
 	// Apply changes after all articles and prices, so that deletions and
 	// renumbering see the final article set of this file.
-	for _, record := range file.Records {
-		if change, ok := record.(*ChangeRecord); ok {
-			applyChange(change, catalog, articleIndex, file.Path)
+	if applyChanges {
+		for _, record := range file.Records {
+			if change, ok := record.(*ChangeRecord); ok {
+				applyChange(change, catalog, articleIndex, file.Path)
+			}
 		}
 	}
 
@@ -297,7 +299,11 @@ func buildDiscountGroups(file *File, diagnostics *productdata.Diagnostics) []pro
 		} else if group.Name == "" {
 			group.Name = record.Description
 		}
-		value, err := productdata.ParseDecimal(record.ValueRaw)
+		valueRaw := strings.TrimSpace(record.ValueRaw)
+		if valueRaw == "" {
+			valueRaw = "0"
+		}
+		value, err := productdata.ParseDecimal(valueRaw)
 		if err != nil {
 			diagnostics.AddAt(productdata.Diagnostic{
 				Severity:   productdata.SeverityWarning,

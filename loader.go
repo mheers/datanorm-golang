@@ -182,7 +182,7 @@ func loadDelivery(ctx context.Context, paths []string, opts []Option) (*productd
 		ordered = append(ordered, path)
 		totalRecords += len(file.Records)
 		role := RoleOf(file)
-		catalog, err := file.Catalog()
+		catalog, err := file.catalogWithoutChanges()
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", path, err)
 		}

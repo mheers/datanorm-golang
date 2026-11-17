@@ -118,7 +118,7 @@ func encodeCatalog(ctx context.Context, w io.Writer, catalog *productdata.Catalo
 	case fileRolePrices:
 		lines = append(lines, headerLine("P", date, currency, catalog.Header))
 		for _, article := range catalog.Articles {
-			lines = append(lines, priceLines(article, currency)...)
+			lines = append(lines, priceLines(article)...)
 		}
 	default:
 		lines = append(lines, headerLine("A", date, currency, catalog.Header))
@@ -211,7 +211,7 @@ func discountKindCode(kind productdata.DiscountKind) string {
 	}
 }
 
-func priceLines(article productdata.Article, currency productdata.Currency) []string {
+func priceLines(article productdata.Article) []string {
 	out := make([]string, 0, len(article.Prices))
 	for _, price := range article.Prices {
 		per := "1"

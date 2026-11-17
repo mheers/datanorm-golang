@@ -2,6 +2,7 @@ package datanorm
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -191,6 +192,38 @@ func TestLoadRenumberInArticleFile(t *testing.T) {
 	}
 }
 
+func TestLoadMergesTextsAcrossArticleFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	first := writeFile(t, dir, "DATANORM.001", joinLines(
+		headerMarker("A", "20260115"),
+		aRecord(map[int]string{2: "N", 3: "A-1", 4: "Kabel", 6: "PCE", 23: "4", 24: "T-1"}),
+		"T;N;T-1;1;01;Langer Text;",
+		"E;4;Beispiel;",
+	))
+	second := writeFile(t, dir, "DATANORM.002", joinLines(
+		headerMarker("A", "20260116"),
+		aRecord(map[int]string{2: "A", 3: "A-1", 4: "Kabel neu", 6: "PCE", 23: "0"}),
+		"E;3;Beispiel;",
+	))
+
+	catalog, err := Load(context.Background(), []string{first, second})
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(catalog.Articles) != 1 {
+		t.Fatalf("articles = %d, want 1", len(catalog.Articles))
+	}
+	article := catalog.Articles[0]
+	if got, want := article.ShortText(), "Kabel neu"; got != want {
+		t.Fatalf("short text = %q, want %q", got, want)
+	}
+	if got, want := article.Text(productdata.TextLong), "Langer Text"; got != want {
+		t.Fatalf("long text = %q, want %q", got, want)
+	}
+}
+
 func TestFindDeliveryFiles(t *testing.T) {
 	t.Parallel()
 
@@ -213,6 +246,118 @@ func TestFindDeliveryFiles(t *testing.T) {
 		if got := filepath.Base(paths[i]); got != want {
 			t.Fatalf("paths[%d] = %q, want %q", i, got, want)
 		}
+	}
+}
+
+func TestLoadFillsPriceUnitAndPreservesStatus(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	articleFile := writeFile(t, dir, "DATANORM.001", joinLines(
+		headerMarker("A", "20260115"),
+		aRecord(map[int]string{
+			2: "N", 3: "A-1", 4: "Kabel", 6: "MTR", 7: "1", 8: "100", 9: "129900",
+		}),
+		"E;3;Beispiel;",
+	))
+	priceFile := writeFile(t, dir, "DATPREIS.001", joinLines(
+		headerMarker("P", "20260116"),
+		"P;A-1;2;100;99900;",
+		"E;3;Beispiel;",
+	))
+
+	catalog, err := Load(context.Background(), []string{articleFile, priceFile})
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(catalog.Articles) != 1 {
+		t.Fatalf("articles = %d, want 1", len(catalog.Articles))
+	}
+	article := catalog.Articles[0]
+	if article.Status != productdata.StatusActive {
+		t.Fatalf("status = %q, want active", article.Status)
+	}
+	price, ok := article.Price(productdata.PriceNet)
+	if !ok {
+		t.Fatal("missing net price")
+	}
+	if price.Per == nil || price.Per.Value.String() != "100" {
+		t.Fatalf("price per = %+v", price.Per)
+	}
+	if price.Per.Unit.Code != "MTR" {
+		t.Fatalf("price unit = %q, want MTR", price.Per.Unit.Code)
+	}
+	if article.Source.RecordType != "A" || article.Source.File != articleFile {
+		t.Fatalf("source = %+v, want the article source", article.Source)
+	}
+}
+
+func TestLoadNoFiles(t *testing.T) {
+	t.Parallel()
+
+	for _, paths := range [][]string{nil, {}} {
+		if _, err := Load(context.Background(), paths); !errors.Is(err, ErrNoFiles) {
+			t.Fatalf("Load(%v) error = %v, want ErrNoFiles", paths, err)
+		}
+	}
+}
+
+func TestFindDeliveryFilesRenamed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	writeFile(t, dir, "DATANORM_Komplettdatei.001", "")
+	writeFile(t, dir, "DATPREIS_2026.001", "")
+	writeFile(t, dir, "DATANORM.RAB", "")
+	writeFile(t, dir, "readme.txt", "")
+	writeFile(t, dir, "datanorm-readme.txt", "")
+
+	paths, err := FindDeliveryFiles(dir)
+	if err != nil {
+		t.Fatalf("FindDeliveryFiles returned error: %v", err)
+	}
+	if got, want := len(paths), 3; got != want {
+		t.Fatalf("paths = %d, want %d: %v", got, want, paths)
+	}
+	order := []string{"DATANORM.RAB", "DATANORM_Komplettdatei.001", "DATPREIS_2026.001"}
+	for i, want := range order {
+		if got := filepath.Base(paths[i]); got != want {
+			t.Fatalf("paths[%d] = %q, want %q", i, got, want)
+		}
+	}
+}
+
+func TestLoadRenumberCollision(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	articleFile := writeFile(t, dir, "DATANORM.001", joinLines(
+		headerMarker("A", "20260115"),
+		aRecord(map[int]string{2: "N", 3: "A-1", 4: "Kabel"}),
+		aRecord(map[int]string{2: "N", 3: "A-2", 4: "Dose"}),
+		"E;4;Beispiel;",
+	))
+	changeFile := writeFile(t, dir, "DATANORM.099", joinLines(
+		headerMarker("A", "20260115"),
+		"B;X;A-1;A-2;;",
+		"E;3;Beispiel;",
+	))
+
+	catalog, err := Load(context.Background(), []string{articleFile, changeFile})
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(catalog.Articles) != 2 {
+		t.Fatalf("articles = %d, want 2: %+v", len(catalog.Articles), catalog.Articles)
+	}
+	if article, ok := catalog.FindArticle("A-1"); !ok || article.Status != productdata.StatusDeleted {
+		t.Fatalf("A-1 = %+v, %v", article, ok)
+	}
+	if article, ok := catalog.FindArticle("A-2"); !ok || article.Status == productdata.StatusDeleted {
+		t.Fatalf("A-2 = %+v, %v", article, ok)
+	}
+	if !hasDiagnostic(catalog.Diagnostics, "dn.renumber-collision") {
+		t.Fatalf("missing dn.renumber-collision: %v", catalog.Diagnostics)
 	}
 }
 

@@ -302,6 +302,29 @@ func TestParseNotDatanorm(t *testing.T) {
 	}
 }
 
+func TestGroupMainNameAfterProductRecord(t *testing.T) {
+	t.Parallel()
+
+	input := strings.Join([]string{
+		headerA("20260115"),
+		"S;ELE;KABEL;Kabel und Leitungen;",
+		"S;ELE;;Elektro;",
+		aRecord(map[int]string{2: "N", 3: "A-1", 4: "Kabel", 11: "ELE", 12: "KABEL"}),
+		"E;4;Beispiel;",
+	}, "\n")
+	catalog, err := Decode(context.Background(), strings.NewReader(input), productdata.DecodeOptions{})
+	if err != nil {
+		t.Fatalf("Decode returned error: %v", err)
+	}
+	group, ok := catalog.FindGroup(productdata.GroupMain, "ELE")
+	if !ok || group.Name != "Elektro" {
+		t.Fatalf("main group = %+v, %v", group, ok)
+	}
+	if ref, ok := catalog.Articles[0].Group(productdata.GroupMain); !ok || ref.Name != "Elektro" {
+		t.Fatalf("article main group = %+v, %v", ref, ok)
+	}
+}
+
 func TestParseVersion4Rejected(t *testing.T) {
 	t.Parallel()
 

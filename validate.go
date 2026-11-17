@@ -133,7 +133,9 @@ func validateFile(file *File) productdata.Diagnostics {
 			hasType := typed.PriceTypeRaw != ""
 			hasUnit := typed.PriceUnitRaw != ""
 			hasPrice := typed.PriceRaw != ""
-			if typed.PriceTypeRaw != "9" && (hasType || hasUnit || hasPrice) && !(hasType && hasUnit && hasPrice) {
+			anyPresent := hasType || hasUnit || hasPrice
+			allPresent := hasType && hasUnit && hasPrice
+			if typed.PriceTypeRaw != "9" && anyPresent && !allPresent {
 				diagnostics.AddAt(productdata.Diagnostic{
 					Severity:   productdata.SeverityWarning,
 					Code:       "dn.price-fields",
@@ -141,6 +143,18 @@ func validateFile(file *File) productdata.Diagnostics {
 					File:       file.Path,
 					Line:       typed.Line(),
 					RecordType: "A",
+				})
+			}
+			if hasType && productdata.PriceTypeFromCode(typed.PriceTypeRaw) == productdata.PriceUnknown {
+				diagnostics.AddAt(productdata.Diagnostic{
+					Severity:   productdata.SeverityWarning,
+					Code:       "dn.price-type",
+					Message:    fmt.Sprintf("unknown price type %q", typed.PriceTypeRaw),
+					File:       file.Path,
+					Line:       typed.Line(),
+					RecordType: "A",
+					Field:      7,
+					Value:      typed.PriceTypeRaw,
 				})
 			}
 		case *TextRecord:

@@ -19,7 +19,7 @@ func (datanormFormat) Name() string        { return "datanorm" }
 func (datanormFormat) Description() string { return "DATANORM 5.0 product and price data" }
 
 func (datanormFormat) Extensions() []string {
-	return []string{".001", ".002", ".003", ".004", ".005", ".006", ".007", ".008", ".009", ".rab", ".wrg", ".dat"}
+	return []string{".001", ".002", ".003", ".004", ".005", ".006", ".007", ".008", ".009", ".rab", ".wrg"}
 }
 
 func (datanormFormat) Detect(filename string, head []byte) bool {
@@ -39,10 +39,6 @@ func (datanormFormat) Detect(filename string, head []byte) bool {
 	}
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".rab", ".wrg":
-		return true
-	}
-	ext := strings.ToLower(filepath.Ext(filename))
-	if len(ext) == 4 && ext[0] == '.' && allDigits(ext[1:]) {
 		return true
 	}
 	return false

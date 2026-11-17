@@ -33,8 +33,9 @@ func WithCharset(name string) Option {
 	}
 }
 
-// WithStrict turns selected warnings into errors. It is off by default because
-// real supplier files are frequently imperfect.
+// WithStrict rejects unknown record types as a parse error. Structural
+// warnings (bad EAN, missing text, over-length field) remain diagnostics with
+// their usual severity; callers decide whether to reject them.
 func WithStrict(strict bool) Option {
 	return func(o *options) {
 		o.strict = strict

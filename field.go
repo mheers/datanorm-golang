@@ -123,8 +123,47 @@ var discountFieldSpecs = []FieldSpec{
 
 var endFieldSpecs = []FieldSpec{
 	{1, "RecordType", "Satzart", 1, ConfidenceSpecified, "Always E"},
-	{2, "Count", "Satzanzahl", 10, ConfidenceSpecified, "Includes the E record"},
+	{2, "Count", "Satzanzahl", 10, ConfidenceSpecified, "Convention varies; see SPEC.md §6.6"},
 	{3, "Creator", "Ersteller / Copyright", 40, ConfidenceSpecified, ""},
+}
+
+var changeFieldSpecs = []FieldSpec{
+	{1, "RecordType", "Satzart", 1, ConfidenceSpecified, "Always B"},
+	{2, "ProcessingFlag", "Verarbeitungskennzeichen", 1, ConfidenceSpecified, "L delete, X renumber, A change"},
+	{3, "ArticleNumber", "Artikelnummer", 15, ConfidenceSpecified, "Old/affected number"},
+	{4, "NewArticleNumber", "Neue Artikelnummer", 15, ConfidenceObserved, "For X records"},
+	{5, "Successor", "Nachfolger", 15, ConfidenceObserved, "For A records"},
+	{6, "Date", "Datum", 8, ConfidenceObserved, "YYYYMMDD"},
+}
+
+var mediaFieldSpecs = []FieldSpec{
+	{1, "RecordType", "Satzart", 1, ConfidenceSpecified, "Always G"},
+	{2, "ProcessingFlag", "Verarbeitungskennzeichen", 1, ConfidenceObserved, "May be absent"},
+	{3, "ArticleNumber", "Artikelnummer", 15, ConfidenceInferred, "Heuristic"},
+	{4, "ReferenceNumber", "Grafikanbindungsnummer", 15, ConfidenceInferred, "Heuristic"},
+	{5, "MediaType", "Anbindungsart", 2, ConfidenceUnknown, "Heuristic"},
+	{6, "Description", "Grafikbeschreibung", 40, ConfidenceInferred, "Heuristic"},
+	{7, "Filename", "Grafikdateiname", 15, ConfidenceInferred, "DOS 8.3 in strict files"},
+}
+
+var surchargeFieldSpecs = []FieldSpec{
+	{1, "RecordType", "Satzart", 1, ConfidenceSpecified, "Always Z"},
+	{2, "ProcessingFlag", "Verarbeitungskennzeichen", 1, ConfidenceObserved, ""},
+	{3, "ArticleNumber", "Artikelnummer", 15, ConfidenceInferred, "Heuristic"},
+	{4, "SetNumber", "Satznummer", 15, ConfidenceUnknown, ""},
+	{5, "ProcessingMarker", "Bearbeitungsmerker", 1, ConfidenceInferred, "1 tier price per NAV mapping"},
+	{6, "BasisMarker", "Basismerker", 1, ConfidenceInferred, "1 delivery/purchase quantity"},
+	{7, "BasisDescription", "Basisbezeichnung", 40, ConfidenceUnknown, ""},
+	{8, "PriceType", "Preiskennzeichen", 1, ConfidenceInferred, ""},
+	{9, "Price", "Preis", 10, ConfidenceInferred, ""},
+	{10, "From", "Von", 15, ConfidenceInferred, "Tier lower bound"},
+	{11, "To", "Bis", 15, ConfidenceInferred, "Tier upper bound"},
+}
+
+var controlFieldSpecs = []FieldSpec{
+	{1, "RecordType", "Satzart", 1, ConfidenceSpecified, "Always K"},
+	{2, "Reserved", "Reserve", 0, ConfidenceUnknown, ""},
+	{3, "CustomerNumber", "Kundennummer", 15, ConfidenceInferred, "Heuristic"},
 }
 
 // FieldSpecs returns the documented field table for a record type. The
@@ -148,6 +187,14 @@ func FieldSpecs(kind Kind) []FieldSpec {
 		source = discountFieldSpecs
 	case KindEnd:
 		source = endFieldSpecs
+	case KindChange:
+		source = changeFieldSpecs
+	case KindMedia:
+		source = mediaFieldSpecs
+	case KindSurcharge:
+		source = surchargeFieldSpecs
+	case KindControl:
+		source = controlFieldSpecs
 	default:
 		return nil
 	}

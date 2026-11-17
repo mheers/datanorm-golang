@@ -244,8 +244,8 @@ type PriceRecord struct {
 }
 
 // Amount returns the parsed amount.
-func (p *PriceRecord) Amount(currency string) (productdata.Amount, error) {
-	return ParsePrice(p.PriceRaw, productdata.NormalizeCurrency(currency))
+func (p *PriceRecord) Amount(currency productdata.Currency) (productdata.Amount, error) {
+	return ParsePrice(p.PriceRaw, currency)
 }
 
 // GroupRecord is an S record.

@@ -2,6 +2,7 @@ package datanorm
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -207,7 +208,7 @@ func TestEncodeLoadRoundTrip(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Create: %v", err)
 		}
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		if err := encode(encoder, file); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
@@ -278,6 +279,65 @@ func TestEncodeGroupsAndDiscounts(t *testing.T) {
 	}
 	if !strings.Contains(discounts.String(), "R;04;1;20;Kabelrabatt;") {
 		t.Fatalf("unexpected discounts:\n%s", discounts.String())
+	}
+}
+
+func TestEncodePriceOnRequest(t *testing.T) {
+	t.Parallel()
+
+	catalog := &productdata.Catalog{
+		Header: productdata.Header{Currency: productdata.EUR, Supplier: productdata.Supplier{Name: "Beispiel"}},
+		Articles: []productdata.Article{
+			{
+				SupplierArticleNumber: "A-1",
+				Unit:                  productdata.NormalizeUnit("PCE"),
+				Texts:                 []productdata.Text{productdata.NewText(productdata.TextShort, "Kabel")},
+				Prices: []productdata.Price{
+					{Type: productdata.PriceOnRequest, Amount: productdata.NewAmount(productdata.Zero(), productdata.EUR)},
+				},
+			},
+		},
+	}
+
+	var out strings.Builder
+	if err := NewEncoder().Encode(context.Background(), &out, catalog, productdata.EncodeOptions{}); err != nil {
+		t.Fatalf("Encode returned error: %v", err)
+	}
+	file, err := Parse(strings.NewReader(out.String()))
+	if err != nil {
+		t.Fatalf("Parse returned error: %v", err)
+	}
+	articles := file.Articles()
+	if len(articles) != 1 {
+		t.Fatalf("articles = %d, want 1", len(articles))
+	}
+	if articles[0].PriceTypeRaw != "9" || articles[0].PriceRaw != "" {
+		t.Fatalf("price fields = %q/%q, want 9/empty", articles[0].PriceTypeRaw, articles[0].PriceRaw)
+	}
+	parsed, err := file.Catalog()
+	if err != nil {
+		t.Fatalf("Catalog returned error: %v", err)
+	}
+	price, ok := parsed.Articles[0].Price(productdata.PriceOnRequest)
+	if !ok || !price.Amount.IsZero() {
+		t.Fatalf("price on request = %+v, %v", price, ok)
+	}
+}
+
+func TestEncodeRejectsSemicolon(t *testing.T) {
+	t.Parallel()
+
+	catalog := sampleCatalog()
+	catalog.Articles[0].Texts = []productdata.Text{
+		productdata.NewText(productdata.TextShort, "Kabel; NYM-J"),
+	}
+	var out strings.Builder
+	err := NewEncoder().Encode(context.Background(), &out, catalog, productdata.EncodeOptions{})
+	if !errors.Is(err, ErrEncodingFailed) {
+		t.Fatalf("error = %v, want ErrEncodingFailed", err)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("encoder wrote %d bytes before failing", out.Len())
 	}
 }
 

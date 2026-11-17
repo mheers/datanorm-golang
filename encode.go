@@ -81,6 +81,13 @@ func encodeCatalog(ctx context.Context, w io.Writer, catalog *productdata.Catalo
 	if opts.LineEnding != "" {
 		o.lineEnding = opts.LineEnding
 	}
+	if opts.Version != "" {
+		switch strings.TrimSpace(opts.Version) {
+		case "5", "5.0", "05", "050":
+		default:
+			return fmt.Errorf("%w: unsupported output version %q", ErrEncodingFailed, opts.Version)
+		}
+	}
 	cs, err := o.resolveCharset()
 	if err != nil {
 		return err
@@ -108,11 +115,17 @@ func encodeCatalog(ctx context.Context, w io.Writer, catalog *productdata.Catalo
 	case fileRoleGroups:
 		lines = append(lines, headerLine("S", date, currency, catalog.Header))
 		for _, group := range catalog.Groups {
+			if strings.TrimSpace(group.ID) == "" {
+				continue
+			}
 			lines = append(lines, groupLine(group))
 		}
 	case fileRoleDiscounts:
 		lines = append(lines, headerLine("R", date, currency, catalog.Header))
 		for _, group := range catalog.DiscountGroups {
+			if strings.TrimSpace(group.ID) == "" {
+				continue
+			}
 			lines = append(lines, discountLines(group)...)
 		}
 	case fileRolePrices:
@@ -125,6 +138,9 @@ func encodeCatalog(ctx context.Context, w io.Writer, catalog *productdata.Catalo
 		textKeys := make(map[string]string)
 		for i := range catalog.Articles {
 			article := &catalog.Articles[i]
+			if strings.TrimSpace(article.SupplierArticleNumber) == "" {
+				return fmt.Errorf("%w: article has no supplier article number", ErrEncodingFailed)
+			}
 			if len(article.SupplierArticleNumber) > 15 {
 				return fmt.Errorf("%w: article number %q exceeds 15 characters", ErrEncodingFailed, article.SupplierArticleNumber)
 			}
@@ -151,11 +167,14 @@ func encodeCatalog(ctx context.Context, w io.Writer, catalog *productdata.Catalo
 			for index, line := range dimensionLines {
 				lines = append(lines, joinFields("D", "N", article.SupplierArticleNumber, fmt.Sprintf("%02d", index+1), "F", line, "", ""))
 			}
-			lines = append(lines, articleLine(article, textKey, currency))
+			lines = append(lines, articleLine(article, textKey))
 		}
 	}
 
 	lines = append(lines, joinFields("E", strconv.Itoa(len(lines)+1), defaultString(catalog.Header.Supplier.Name, "datanorm-golang"), ""))
+	if err := validateFieldCounts(lines); err != nil {
+		return err
+	}
 	data, err := charset.Encode(strings.Join(lines, o.lineEnding)+o.lineEnding, cs)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrEncodingFailed, err)
@@ -183,6 +202,9 @@ func headerLine(marker string, date time.Time, currency productdata.Currency, he
 func groupLine(group productdata.Group) string {
 	switch group.Level {
 	case productdata.GroupProduct:
+		if group.ParentID == "" {
+			return joinFields("S", group.ID, "", group.Name, "")
+		}
 		return joinFields("S", group.ParentID, group.ID, group.Name, "")
 	default:
 		return joinFields("S", group.ID, "", group.Name, "")
@@ -214,6 +236,9 @@ func discountKindCode(kind productdata.DiscountKind) string {
 func priceLines(article productdata.Article) []string {
 	out := make([]string, 0, len(article.Prices))
 	for _, price := range article.Prices {
+		if price.Type.Code() == "" {
+			continue
+		}
 		per := "1"
 		if price.Per != nil && !price.Per.Value.IsZero() {
 			per = price.Per.Value.String()
@@ -231,7 +256,7 @@ func priceLines(article productdata.Article) []string {
 	return out
 }
 
-func articleLine(article *productdata.Article, textKey string, currency productdata.Currency) string {
+func articleLine(article *productdata.Article, textKey string) string {
 	fields := make([]string, 30)
 	fields[0] = "A"
 	fields[1] = processingFlagForStatus(article.Status)
@@ -252,7 +277,9 @@ func articleLine(article *productdata.Article, textKey string, currency productd
 		} else {
 			fields[7] = "1"
 		}
-		fields[8] = encodePriceValue(price.Amount)
+		if price.Type != productdata.PriceOnRequest || !price.Amount.IsZero() {
+			fields[8] = encodePriceValue(price.Amount)
+		}
 	}
 	if group, ok := article.Group(productdata.GroupDiscount); ok {
 		fields[9] = group.ID
@@ -305,9 +332,6 @@ func shortTextLines(article *productdata.Article) []string {
 			return text.Lines
 		}
 	}
-	if article.ShortText() != "" {
-		return []string{article.ShortText()}
-	}
 	return nil
 }
 
@@ -318,8 +342,10 @@ func bestPrice(article *productdata.Article) (productdata.Price, bool) {
 	if price, ok := article.Price(productdata.PriceNet); ok {
 		return price, true
 	}
-	if len(article.Prices) > 0 {
-		return article.Prices[0], true
+	for _, price := range article.Prices {
+		if price.Type.Code() != "" {
+			return price, true
+		}
 	}
 	return productdata.Price{}, false
 }
@@ -335,13 +361,14 @@ func encodePriceValue(amount productdata.Amount) string {
 }
 
 func textMarkerFor(article *productdata.Article, textKey string) string {
+	hasLong := textKey != ""
+	hasDimension := article.Text(productdata.TextDimension) != ""
 	if marker := extra(article, "datanorm.text_marker"); marker != "" {
-		if TextMarker(marker).Valid() {
+		if typed := TextMarker(marker); typed.Valid() &&
+			typed.WantsLong() == hasLong && typed.WantsDimension() == hasDimension {
 			return marker
 		}
 	}
-	hasLong := textKey != ""
-	hasDimension := article.Text(productdata.TextDimension) != ""
 	switch {
 	case hasLong && hasDimension:
 		return string(TextMarkerAll)
@@ -402,6 +429,37 @@ func defaultString(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+// validateFieldCounts rejects output in which a semicolon inside a value has
+// shifted the fields. DATANORM has no quoting or escaping, so such a value
+// cannot be represented and must be rejected instead of silently corrupting
+// the file.
+func validateFieldCounts(lines []string) error {
+	expected := map[byte]int{
+		'V': 16,
+		'A': 30,
+		'T': 7,
+		'D': 8,
+		'S': 5,
+		'R': 6,
+		'P': 6,
+		'E': 4,
+	}
+	for i, line := range lines {
+		if line == "" {
+			continue
+		}
+		want, ok := expected[line[0]]
+		if !ok {
+			continue
+		}
+		if got := strings.Count(line, ";") + 1; got != want {
+			return fmt.Errorf("%w: line %d (%c record) has %d fields, want %d; a value probably contains ';'",
+				ErrEncodingFailed, i+1, line[0], got, want)
+		}
+	}
+	return nil
 }
 
 // wrapText breaks text into lines of at most width characters. Existing line

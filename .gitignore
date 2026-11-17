@@ -25,8 +25,15 @@ coverage.txt
 DATANORM.*
 DATPREIS.*
 DATASETS.*
+datanorm.*
+datpreis.*
+datasets.*
 *.RAB
 *.WRG
+*.rab
+*.wrg
 !testdata/**/*.001
 !testdata/**/*.RAB
 !testdata/**/*.WRG
+!testdata/**/*.rab
+!testdata/**/*.wrg

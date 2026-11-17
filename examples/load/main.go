@@ -4,36 +4,48 @@ package main
 import (
 	"context"
 	"fmt"
-	"log"
+	"io"
 	"os"
 
 	"github.com/mheers/datanorm-golang"
 )
 
 func main() {
-	paths := os.Args[1:]
+	os.Exit(run(os.Args[1:], ".", os.Stdout, os.Stderr))
+}
+
+func run(args []string, dir string, stdout, stderr io.Writer) int {
+	paths := args
 	if len(paths) == 0 {
 		var err error
-		paths, err = datanorm.FindDeliveryFiles(".")
+		paths, err = datanorm.FindDeliveryFiles(dir)
 		if err != nil {
-			log.Fatal(err)
+			writef(stderr, "error: %v\n", err)
+			return 1
 		}
 	}
 	if len(paths) == 0 {
-		log.Fatal("no DATANORM files found")
+		writef(stderr, "no DATANORM files found\n")
+		return 1
 	}
 
 	catalog, err := datanorm.Load(context.Background(), paths)
 	if err != nil {
-		log.Fatal(err)
+		writef(stderr, "error: %v\n", err)
+		return 1
 	}
 
-	fmt.Printf("files:     %d\n", len(paths))
-	fmt.Printf("articles:  %d\n", len(catalog.Articles))
-	fmt.Printf("groups:    %d\n", len(catalog.Groups))
-	fmt.Printf("discounts: %d\n", len(catalog.DiscountGroups))
-	fmt.Printf("currency:  %s\n", catalog.Header.Currency)
+	writef(stdout, "files:     %d\n", len(paths))
+	writef(stdout, "articles:  %d\n", len(catalog.Articles))
+	writef(stdout, "groups:    %d\n", len(catalog.Groups))
+	writef(stdout, "discounts: %d\n", len(catalog.DiscountGroups))
+	writef(stdout, "currency:  %s\n", catalog.Header.Currency)
 	if catalog.Header.PriceDate != nil {
-		fmt.Printf("price date: %s\n", catalog.Header.PriceDate.Format("2006-01-02"))
+		writef(stdout, "price date: %s\n", catalog.Header.PriceDate.Format("2006-01-02"))
 	}
+	return 0
+}
+
+func writef(w io.Writer, format string, args ...any) {
+	_, _ = fmt.Fprintf(w, format, args...)
 }

@@ -17,10 +17,14 @@ semantic versioning.
   and unknown records.
 - Symbolic text keys, dimension texts with `T`-block insertion, product groups,
   discount groups, media references, deletions, and renumbering.
-- Delivery loader with role ordering, merging, price updates, and group-name
-  resolution.
-- DATANORM encoder for article, product-group, discount-group, and price files.
-- Validation with stable diagnostic codes and a source-backed `SPEC.md`.
+- Delivery loader with role ordering, merging, price updates, group-name
+  resolution, price-unit inheritance, and deletion/renumbering applied after
+  all article files.
+- Encoder for article, product-group, discount-group, and price files, with a
+  guard against unrepresentable semicolons.
+- Validation with stable diagnostic codes (`dn.ean-checksum`, `dn.price`,
+  `dn.price-type`, `dn.missing-text`, `dn.end-count`, `dn.duplicate-article`,
+  `dn.renumber-collision`, …) and a source-backed `SPEC.md`.
 - `cmd/datanorm` CLI: `info`, `validate`, `articles`, `json`, `encodings`.
 - `examples/inspect` and `examples/load`.
 - Synthetic test fixtures only; no supplier or customer data is included.

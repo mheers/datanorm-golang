@@ -107,7 +107,22 @@ func buildTextBlocks(file *File, diagnostics *productdata.Diagnostics) map[strin
 			continue
 		}
 		if record.ProcessingFlag == FlagDelete {
-			delete(blocks, record.Key)
+			if record.LineNumber > 0 {
+				lines := blocks[record.Key]
+				kept := lines[:0]
+				for _, line := range lines {
+					if line.number != record.LineNumber {
+						kept = append(kept, line)
+					}
+				}
+				if len(kept) == 0 {
+					delete(blocks, record.Key)
+				} else {
+					blocks[record.Key] = kept
+				}
+			} else {
+				delete(blocks, record.Key)
+			}
 			continue
 		}
 		blocks[record.Key] = append(blocks[record.Key], textLine{
@@ -180,7 +195,22 @@ func buildDimensionBlocks(file *File, textBlocks map[string][]textLine, diagnost
 			continue
 		}
 		if record.ProcessingFlag == FlagDelete {
-			delete(grouped, record.ArticleNumber)
+			if record.LineNumber > 0 {
+				records := grouped[record.ArticleNumber]
+				kept := records[:0]
+				for _, existing := range records {
+					if existing.LineNumber != record.LineNumber {
+						kept = append(kept, existing)
+					}
+				}
+				if len(kept) == 0 {
+					delete(grouped, record.ArticleNumber)
+				} else {
+					grouped[record.ArticleNumber] = kept
+				}
+			} else {
+				delete(grouped, record.ArticleNumber)
+			}
 			continue
 		}
 		grouped[record.ArticleNumber] = append(grouped[record.ArticleNumber], record)
@@ -248,18 +278,20 @@ func buildGroups(file *File) (map[string]string, map[string]string, []productdat
 		if record.MainGroup == "" {
 			continue
 		}
+		mainKey := "main\x00" + record.MainGroup
+		if _, exists := byKey[mainKey]; !exists {
+			byKey[mainKey] = productdata.Group{Level: productdata.GroupMain, ID: record.MainGroup}
+			order = append(order, mainKey)
+		}
 		mainDescription := record.MainGroupDescription
 		if mainDescription == "" && record.ProductGroup == "" {
 			mainDescription = record.Description
 		}
 		if mainDescription != "" {
 			mainNames[record.MainGroup] = mainDescription
-		}
-		mainKey := "main\x00" + record.MainGroup
-		if _, exists := byKey[mainKey]; !exists {
-			name := mainNames[record.MainGroup]
-			byKey[mainKey] = productdata.Group{Level: productdata.GroupMain, ID: record.MainGroup, Name: name}
-			order = append(order, mainKey)
+			mainGroup := byKey[mainKey]
+			mainGroup.Name = mainDescription
+			byKey[mainKey] = mainGroup
 		}
 		if record.ProductGroup == "" {
 			continue
@@ -432,7 +464,8 @@ func articleFromRecord(
 	if record.PriceRaw != "" || strings.TrimSpace(record.PriceTypeRaw) == "9" {
 		if record.PriceRaw == "" {
 			article.Prices = append(article.Prices, productdata.Price{
-				Type: productdata.PriceOnRequest,
+				Type:   productdata.PriceOnRequest,
+				Amount: productdata.NewAmount(productdata.Zero(), currency),
 			})
 		} else {
 			amount, err := ParsePrice(record.PriceRaw, currency)
@@ -488,6 +521,7 @@ func articleFromRecord(
 			ID:    record.DiscountGroup,
 		})
 	}
+	article.Logistics.StorageFlag = record.StorageFlag
 	if record.MainGroup != "" {
 		article.Groups = append(article.Groups, productdata.GroupRef{
 			Level: productdata.GroupMain,
@@ -596,13 +630,38 @@ func applyChange(change *ChangeRecord, catalog *productdata.Catalog, index map[s
 		if change.NewArticleNumber == "" {
 			return
 		}
-		if i, ok := index[change.ArticleNumber]; ok {
-			catalog.Articles[i].SupplierArticleNumber = change.NewArticleNumber
-			catalog.Articles[i].Status = productdata.StatusChanged
-			catalog.Articles[i].Extra = ensureExtra(catalog.Articles[i].Extra)
-			catalog.Articles[i].Extra["datanorm.previous_article_number"] = change.ArticleNumber
+		oldIndex, oldExists := index[change.ArticleNumber]
+		newIndex, newExists := index[change.NewArticleNumber]
+		if oldExists && newExists && oldIndex != newIndex {
+			catalog.Articles[oldIndex].Status = productdata.StatusDeleted
+			catalog.Diagnostics.AddAt(productdata.Diagnostic{
+				Severity:   productdata.SeverityWarning,
+				Code:       "dn.renumber-collision",
+				Message:    fmt.Sprintf("cannot renumber article %q to %q: the target number already exists", change.ArticleNumber, change.NewArticleNumber),
+				File:       file,
+				Line:       change.Line(),
+				RecordType: "B",
+			})
+			return
+		}
+		if oldExists {
+			catalog.Articles[oldIndex].SupplierArticleNumber = change.NewArticleNumber
+			catalog.Articles[oldIndex].Status = productdata.StatusChanged
+			catalog.Articles[oldIndex].Extra = ensureExtra(catalog.Articles[oldIndex].Extra)
+			catalog.Articles[oldIndex].Extra["datanorm.previous_article_number"] = change.ArticleNumber
 			delete(index, change.ArticleNumber)
-			index[change.NewArticleNumber] = i
+			index[change.NewArticleNumber] = oldIndex
+			return
+		}
+		if newExists {
+			catalog.Diagnostics.AddAt(productdata.Diagnostic{
+				Severity:   productdata.SeverityWarning,
+				Code:       "dn.renumber-collision",
+				Message:    fmt.Sprintf("cannot renumber unknown article %q to %q: the target number already exists", change.ArticleNumber, change.NewArticleNumber),
+				File:       file,
+				Line:       change.Line(),
+				RecordType: "B",
+			})
 			return
 		}
 		index[change.NewArticleNumber] = len(catalog.Articles)
@@ -635,7 +694,10 @@ func applyPrice(record *PriceRecord, catalog *productdata.Catalog, index map[str
 		return
 	}
 	if record.PriceRaw == "" && strings.TrimSpace(record.PriceTypeRaw) == "9" {
-		price := productdata.Price{Type: productdata.PriceOnRequest}
+		price := productdata.Price{
+			Type:   productdata.PriceOnRequest,
+			Amount: productdata.NewAmount(productdata.Zero(), catalog.Header.Currency),
+		}
 		storePrice(record, catalog, index, price)
 		return
 	}
@@ -659,6 +721,17 @@ func applyPrice(record *PriceRecord, catalog *productdata.Catalog, index map[str
 		Type:   productdata.PriceTypeFromCode(record.PriceTypeRaw),
 		Amount: amount,
 	}
+	if price.Type == productdata.PriceUnknown {
+		diagnostics.AddAt(productdata.Diagnostic{
+			Severity:   productdata.SeverityWarning,
+			Code:       "dn.price-type",
+			Message:    fmt.Sprintf("price record for article %q has unknown price type %q", record.ArticleNumber, record.PriceTypeRaw),
+			Line:       record.Line(),
+			RecordType: "P",
+			Field:      3,
+			Value:      record.PriceTypeRaw,
+		})
+	}
 	if per, err := strconv.ParseInt(strings.TrimSpace(record.PriceUnitRaw), 10, 64); err == nil && per > 1 {
 		price.Per = &productdata.Quantity{Value: productdata.NewDecimal(per, 0)}
 	}
@@ -671,7 +744,6 @@ func storePrice(record *PriceRecord, catalog *productdata.Catalog, index map[str
 		article := productdata.Article{
 			SupplierArticleNumber: record.ArticleNumber,
 			Prices:                []productdata.Price{price},
-			Status:                productdata.StatusChanged,
 			Source: productdata.Source{
 				Format:     "datanorm",
 				Version:    "5.0",

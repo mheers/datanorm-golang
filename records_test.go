@@ -111,6 +111,25 @@ func TestSurchargeRecord(t *testing.T) {
 	}
 }
 
+func TestPriceOnRequestWithFlag(t *testing.T) {
+	t.Parallel()
+
+	record := parseSingleRecord(t, "P;A;A-1;9;1;;")
+	price, ok := record.(*PriceRecord)
+	if !ok {
+		t.Fatalf("record = %T", record)
+	}
+	if price.ProcessingFlag != FlagChange {
+		t.Errorf("flag = %q, want A", price.ProcessingFlag)
+	}
+	if price.ArticleNumber != "A-1" {
+		t.Errorf("article = %q, want A-1", price.ArticleNumber)
+	}
+	if price.PriceTypeRaw != "9" || price.PriceUnitRaw != "1" || price.PriceRaw != "" {
+		t.Errorf("price = %+v", price)
+	}
+}
+
 func TestTextMarkerHelpers(t *testing.T) {
 	t.Parallel()
 
@@ -226,8 +245,11 @@ func TestFormatDetection(t *testing.T) {
 	if !format.Detect("DATANORM.001", nil) {
 		t.Fatal("expected filename detection")
 	}
-	if !format.Detect("catalog.099", nil) {
-		t.Fatal("expected numeric extension detection")
+	if !format.Detect("DATANORM.099", nil) {
+		t.Fatal("expected DATANORM numeric extension detection")
+	}
+	if format.Detect("archive.7z.001", nil) {
+		t.Fatal("a generic split-archive extension must not be detected")
 	}
 	if !format.Detect("", []byte("V;050;A;20260115;EUR;Beispiel")) {
 		t.Fatal("expected content detection")

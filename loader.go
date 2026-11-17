@@ -82,7 +82,7 @@ func sniffRole(path string) DeliveryRole {
 	if err != nil {
 		return fallback
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	reader := bufio.NewReaderSize(file, 4096)
 	sample, _ := reader.Peek(4096)
@@ -142,6 +142,9 @@ func Load(ctx context.Context, paths []string, opts ...Option) (*productdata.Cat
 func loadDelivery(ctx context.Context, paths []string, opts []Option) (*productdata.Catalog, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if len(paths) == 0 {
+		return nil, ErrNoFiles
 	}
 	type entry struct {
 		path string
@@ -311,6 +314,19 @@ func mergeArticle(base, next productdata.Article) productdata.Article {
 	}
 	if len(next.Texts) == 0 {
 		next.Texts = base.Texts
+	} else {
+		for _, baseText := range base.Texts {
+			found := false
+			for _, nextText := range next.Texts {
+				if nextText.Kind == baseText.Kind && nextText.Language == baseText.Language {
+					found = true
+					break
+				}
+			}
+			if !found {
+				next.Texts = append(next.Texts, baseText)
+			}
+		}
 	}
 	if len(next.Groups) == 0 {
 		next.Groups = base.Groups
@@ -342,15 +358,96 @@ func mergeArticle(base, next productdata.Article) productdata.Article {
 	}
 	if len(next.Media) == 0 {
 		next.Media = base.Media
+	} else {
+		for _, baseMedia := range base.Media {
+			found := false
+			for _, nextMedia := range next.Media {
+				if nextMedia.Type == baseMedia.Type && nextMedia.Filename == baseMedia.Filename {
+					found = true
+					break
+				}
+			}
+			if !found {
+				next.Media = append(next.Media, baseMedia)
+			}
+		}
+	}
+	if next.Logistics.Weight == nil {
+		next.Logistics.Weight = base.Logistics.Weight
+	}
+	if next.Logistics.Length == nil {
+		next.Logistics.Length = base.Logistics.Length
+	}
+	if next.Logistics.Width == nil {
+		next.Logistics.Width = base.Logistics.Width
+	}
+	if next.Logistics.Height == nil {
+		next.Logistics.Height = base.Logistics.Height
+	}
+	if next.Logistics.PackagingQuantity == nil {
+		next.Logistics.PackagingQuantity = base.Logistics.PackagingQuantity
+	}
+	if next.Logistics.CountryOfOrigin == "" {
+		next.Logistics.CountryOfOrigin = base.Logistics.CountryOfOrigin
+	}
+	if next.Logistics.CustomsTariffNumber == "" {
+		next.Logistics.CustomsTariffNumber = base.Logistics.CustomsTariffNumber
+	}
+	if next.Logistics.StorageFlag == "" {
+		next.Logistics.StorageFlag = base.Logistics.StorageFlag
 	}
 	if len(next.Features) == 0 {
 		next.Features = base.Features
+	} else {
+		for _, baseFeature := range base.Features {
+			found := false
+			for _, nextFeature := range next.Features {
+				if nextFeature.Group == baseFeature.Group && nextFeature.Name == baseFeature.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				next.Features = append(next.Features, baseFeature)
+			}
+		}
 	}
 	if len(next.Classifications) == 0 {
 		next.Classifications = base.Classifications
+	} else {
+		for _, baseClassification := range base.Classifications {
+			found := false
+			for _, nextClassification := range next.Classifications {
+				if nextClassification.System == baseClassification.System && nextClassification.Code == baseClassification.Code {
+					found = true
+					break
+				}
+			}
+			if !found {
+				next.Classifications = append(next.Classifications, baseClassification)
+			}
+		}
 	}
 	if len(next.Associations) == 0 {
 		next.Associations = base.Associations
+	} else {
+		for _, baseAssociation := range base.Associations {
+			found := false
+			for _, nextAssociation := range next.Associations {
+				if nextAssociation.Kind == baseAssociation.Kind &&
+					nextAssociation.Article.SupplierArticleNumber == baseAssociation.Article.SupplierArticleNumber {
+					found = true
+					break
+				}
+			}
+			if !found {
+				next.Associations = append(next.Associations, baseAssociation)
+			}
+		}
+	}
+	if next.Source.RecordType == "P" && base.Source.RecordType == "A" {
+		// Keep the article's provenance when a price file only adds prices.
+		next.Source = base.Source
 	}
 	for _, price := range base.Prices {
 		found := false
@@ -362,6 +459,12 @@ func mergeArticle(base, next productdata.Article) productdata.Article {
 		}
 		if !found {
 			next.Prices = append(next.Prices, price)
+		}
+	}
+	// A price file carries no unit; fill it from the article data.
+	for i := range next.Prices {
+		if next.Prices[i].Per != nil && next.Prices[i].Per.Unit.Code == "" {
+			next.Prices[i].Per.Unit = next.Unit
 		}
 	}
 	if next.Extra == nil {
@@ -428,30 +531,53 @@ func prefixDiagnostics(diagnostics productdata.Diagnostics, path string) product
 }
 
 // FindDeliveryFiles returns the DATANORM files in a directory, in processing
-// order. It matches the standard names and extensions.
+// order. It accepts the standard names, renamed article files such as
+// DATANORM_Komplettdatei.001, and the .RAB/.WRG group files.
 func FindDeliveryFiles(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	var paths []string
+	type candidate struct {
+		path string
+		role DeliveryRole
+	}
+	var candidates []candidate
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
 		name := strings.ToLower(entry.Name())
-		if strings.HasPrefix(name, "datanorm.") || strings.HasPrefix(name, "datpreis.") ||
-			strings.HasPrefix(name, "datasets.") || strings.HasPrefix(name, "datatext.") ||
-			strings.HasSuffix(name, ".rab") || strings.HasSuffix(name, ".wrg") {
-			paths = append(paths, filepath.Join(dir, entry.Name()))
+		if !isDeliveryFileName(name) {
+			continue
 		}
+		path := filepath.Join(dir, entry.Name())
+		candidates = append(candidates, candidate{path: path, role: sniffRole(path)})
 	}
-	sort.SliceStable(paths, func(i, j int) bool {
-		ri, rj := RoleFromName(paths[i]), RoleFromName(paths[j])
-		if roleRank(ri) != roleRank(rj) {
-			return roleRank(ri) < roleRank(rj)
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if roleRank(candidates[i].role) != roleRank(candidates[j].role) {
+			return roleRank(candidates[i].role) < roleRank(candidates[j].role)
 		}
-		return paths[i] < paths[j]
+		return candidates[i].path < candidates[j].path
 	})
+	paths := make([]string, len(candidates))
+	for i, candidate := range candidates {
+		paths[i] = candidate.path
+	}
 	return paths, nil
+}
+
+// isDeliveryFileName reports whether a lower-case base name is a DATANORM
+// delivery file. The numeric extension is required for DATANORM/DATPREIS/
+// DATASETS/DATATEXT files, so a file such as datanorm-readme.txt is ignored.
+func isDeliveryFileName(name string) bool {
+	if strings.HasSuffix(name, ".rab") || strings.HasSuffix(name, ".wrg") {
+		return true
+	}
+	ext := filepath.Ext(name)
+	if len(ext) != 4 || ext[0] != '.' || !allDigits(ext[1:]) {
+		return false
+	}
+	return strings.HasPrefix(name, "datanorm") || strings.HasPrefix(name, "datpreis") ||
+		strings.HasPrefix(name, "datasets") || strings.HasPrefix(name, "datatext")
 }

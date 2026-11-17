@@ -155,7 +155,7 @@ func Open(path string, opts ...Option) (*File, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	parsed, err := Parse(file, opts...)
 	if err != nil {
 		return nil, err
@@ -544,9 +544,18 @@ func parseRecord(kind Kind, line int, raw string, fields []string) Record {
 		flag := ParseProcessingFlag(f(2))
 		useFlag := false
 		if flag.Valid() {
-			noFlagValid := looksLikePriceType(f(3)) && looksLikePriceUnit(f(4)) && f(5) != ""
-			flagValid := looksLikePriceType(f(4)) && looksLikePriceUnit(f(5)) && f(6) != ""
-			useFlag = flagValid && !noFlagValid
+			noFlagValid := looksLikePriceType(f(3)) && looksLikePriceUnit(f(4)) &&
+				(f(5) != "" || f(3) == "9")
+			flagValid := looksLikePriceType(f(4)) && looksLikePriceUnit(f(5)) &&
+				(f(6) != "" || f(4) == "9")
+			switch {
+			case flagValid && !noFlagValid:
+				useFlag = true
+			case flagValid && noFlagValid:
+				// Both interpretations fit. The version 4 flag layout has one
+				// more field, which decides the empty-price case.
+				useFlag = len(fields) >= 7
+			}
 		}
 		offset := 0
 		if useFlag {

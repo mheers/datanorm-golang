@@ -19,6 +19,9 @@ var (
 	ErrLineTooLong = errors.New("datanorm: line exceeds maximum length")
 )
 
+// ErrNoFiles means a delivery was requested without any input files.
+var ErrNoFiles = errors.New("datanorm: no input files")
+
 // ParseError adds location information to a parsing error.
 type ParseError struct {
 	File       string

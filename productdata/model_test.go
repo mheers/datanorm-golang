@@ -125,6 +125,23 @@ func TestDiagnostics(t *testing.T) {
 	}
 }
 
+func TestUnitKnown(t *testing.T) {
+	t.Parallel()
+
+	if !NormalizeUnit("PCE").Known() {
+		t.Fatal("PCE should be known")
+	}
+	if !NormalizeUnit("Stück").Known() {
+		t.Fatal("Stück should be known")
+	}
+	if NormalizeUnit("XYZ").Known() {
+		t.Fatal("XYZ should not be known")
+	}
+	if (Unit{}).Known() {
+		t.Fatal("empty unit should not be known")
+	}
+}
+
 func TestCatalogFindArticle(t *testing.T) {
 	t.Parallel()
 
@@ -146,13 +163,18 @@ func TestCatalogFindArticle(t *testing.T) {
 type fakeFormat struct {
 	name string
 	head string
+	ext  string
 }
 
 func (f fakeFormat) Name() string         { return f.name }
 func (f fakeFormat) Description() string  { return "fake" }
 func (f fakeFormat) Extensions() []string { return []string{".fake"} }
 func (f fakeFormat) Detect(filename string, head []byte) bool {
-	return strings.HasSuffix(strings.ToLower(filename), ".fake") || strings.HasPrefix(string(head), f.head)
+	ext := f.ext
+	if ext == "" {
+		ext = ".fake"
+	}
+	return strings.HasSuffix(strings.ToLower(filename), ext) || strings.HasPrefix(string(head), f.head)
 }
 func (f fakeFormat) Capabilities() Capabilities { return Capabilities{Read: true, Batch: true} }
 func (f fakeFormat) NewDecoder() (Decoder, error) {

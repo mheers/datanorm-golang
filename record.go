@@ -47,13 +47,5 @@ func (b base) Field(position int) string {
 	return strings.TrimSpace(b.fields[position-1])
 }
 
-// rawField returns the exact value at a 1-based position, without trimming.
-func (b base) rawField(position int) string {
-	if position < 1 || position > len(b.fields) {
-		return ""
-	}
-	return b.fields[position-1]
-}
-
 // fieldCount returns the number of fields including the record type.
 func (b base) fieldCount() int { return len(b.fields) }

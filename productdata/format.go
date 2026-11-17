@@ -39,11 +39,14 @@ type Capabilities struct {
 // DecodeOptions are common options for decoding. Format-specific decoders may
 // define additional options of their own.
 type DecodeOptions struct {
-	// Strict turns selected warnings into errors.
+	// Strict rejects unknown record types as a parse error. Structural warnings
+	// remain diagnostics with their usual severity.
 	Strict bool
 	// Charset overrides character-set detection, for example "cp850".
 	Charset string
-	// CollectRaw keeps format-specific raw data on articles and records.
+	// CollectRaw requests that decoders keep format-specific raw data on
+	// articles and records. The DATANORM decoder always keeps its raw records,
+	// so the option is advisory for other format implementations.
 	CollectRaw bool
 }
 
@@ -95,10 +98,10 @@ var (
 // Register adds a format to the process-wide registry. Registering the same
 // name twice returns ErrDuplicateFormat.
 func Register(format Format) error {
-	if format == nil || format.Name() == "" {
+	if format == nil || strings.TrimSpace(format.Name()) == "" {
 		return ErrInvalidFormat
 	}
-	name := strings.ToLower(format.Name())
+	name := strings.ToLower(strings.TrimSpace(format.Name()))
 
 	registryMu.Lock()
 	defer registryMu.Unlock()
@@ -114,7 +117,7 @@ func Register(format Format) error {
 func Get(name string) (Format, bool) {
 	registryMu.RLock()
 	defer registryMu.RUnlock()
-	format, ok := registry[strings.ToLower(name)]
+	format, ok := registry[strings.ToLower(strings.TrimSpace(name))]
 	return format, ok
 }
 

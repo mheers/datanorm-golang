@@ -134,10 +134,11 @@ without breaking DATANORM.
 | `B` records | `Article.Status` / replacement association |
 | `S` records | `Group` (`main`/`product`) |
 | `R` records | `DiscountGroup` with `Discount` entries |
-| `Z` records | `Surcharge` / `PriceTier`, or raw |
-| `J` records | `Set` with `SetItem`s |
+| `Z` records | raw record preserved; typed surcharge/tier mapping is planned |
+| `J` records | raw record preserved; typed set mapping is planned |
 | `G` records | `Media` on the article |
 | `C` records | raw; trade-specific service data |
+| `K` records | customer-number candidate on the raw record |
 | `E` record | `Header.RecordCount`, completeness diagnostic |
 
 ### IDS Connect 2 → canonical (planned)
@@ -233,7 +234,7 @@ DATANORM files can be several gigabytes. Two APIs are provided:
 - **Record streaming** — `datanorm.Scan` yields `Record` values with a scanner
   buffer, no full-file allocation. Ideal for indexing, filtering, or copying.
 - **Catalog loading** — `datanorm.Load` parses one or more delivery files and
-  assembles referenced texts, groups, discounts, and sets. This is the API most
+  assembles referenced texts, groups, and discounts. This is the API most
   applications want, and it holds the catalog in memory.
 
 The raw `File` returned by `datanorm.Open`/`Parse` keeps every record and is
@@ -252,13 +253,17 @@ not required for correctness.
   severity, a stable code, a message, and a location (file, line, record type,
   field). A bad EAN is a warning; an oversized article number is a warning; a
   missing long text is a warning.
-- **Strict mode** turns selected warnings into errors. It is off by default
-  because real supplier data would otherwise never import.
+- **Strict mode** rejects unknown record types as a parse error. Structural
+  warnings remain diagnostics; a caller can reject them by checking
+  `Diagnostics.Count(SeverityWarning)`. Strict mode is off by default because
+  real supplier data would otherwise never import.
 
-Stable diagnostic codes (examples): `dn.missing-header`, `dn.version`,
-`dn.field-count`, `dn.article-number`, `dn.short-text`, `dn.price`,
-`dn.price-unit`, `dn.ean-checksum`, `dn.duplicate-article`, `dn.missing-text`,
-`dn.missing-group`, `dn.end-count`, `dn.unsupported-record`.
+Stable diagnostic codes (examples): `dn.header-date`, `dn.article-number`,
+`dn.short-text`, `dn.unit`, `dn.text-marker`, `dn.field-count`,
+`dn.processing-flag`, `dn.price-fields`, `dn.price`, `dn.price-unit`,
+`dn.ean-checksum`, `dn.duplicate-article`, `dn.missing-text`,
+`dn.text-line-duplicate`, `dn.end-count`, `dn.discount-value`,
+`dn.unknown-record`, `dn.renumber-collision`.
 
 ## Adding a new format
 

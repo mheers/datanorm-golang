@@ -152,7 +152,7 @@ func NormalizeUnit(code string) Unit {
 
 // Known reports whether the unit code is recognized.
 func (u Unit) Known() bool {
-	return u.Kind != UnitOther || u.Code == ""
+	return u.Kind != "" && u.Kind != UnitOther
 }
 
 // String returns the unit code.

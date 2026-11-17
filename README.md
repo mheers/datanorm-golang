@@ -241,6 +241,9 @@ warning.
   article record. It is detected and rejected with `ErrVersion4`.
 - The exact layouts of `Z`, `J`, `C`, and `G` are not publicly specified. The
   library preserves every field and exposes only what is unambiguous.
+- The encoder writes article (`A`), text (`T`, `D`), group (`S`), discount
+  (`R`), and price (`P`) records plus the `V` and `E` frames. It does not
+  synthesize `G`, `Z`, `J`, `C`, or `K` records; those are read as raw data.
 - The canonical catalog is loaded into memory. For multi-gigabyte files, use
   `Scan` for record-level streaming.
 - The library does not apply discounts, VAT, or customer-specific conditions.
@@ -253,7 +256,12 @@ warning.
 ```bash
 go test ./...
 go test -race ./...
+go test -coverpkg=./... -coverprofile=coverage.out ./...
+go tool cover -func=coverage.out | tail -1
 ```
+
+The test suite keeps every package above 90% statement coverage; the aggregate
+across all packages is above 94%.
 
 All fixtures are synthetic. No supplier or customer data is included in this
 repository; public catalogues were used only to verify field positions and are

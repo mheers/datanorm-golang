@@ -208,6 +208,9 @@ func parseReader(r io.Reader, cs charset.Charset, o options) (*File, error) {
 			}
 			header, ok := record.(*HeaderRecord)
 			if !ok {
+				if raw != "" && raw[0] != 'V' {
+					return &ParseError{Line: record.Line(), Err: ErrNotDatanorm}
+				}
 				return &ParseError{Line: record.Line(), Err: ErrMissingHeader}
 			}
 			if err := checkVersion(header); err != nil {
@@ -278,6 +281,9 @@ func scanReader(r io.Reader, o options, fn func(Record) error) error {
 			}
 			header, ok := record.(*HeaderRecord)
 			if !ok {
+				if raw != "" && raw[0] != 'V' {
+					return &ParseError{Line: record.Line(), Err: ErrNotDatanorm}
+				}
 				return &ParseError{Line: record.Line(), Err: ErrMissingHeader}
 			}
 			if err := checkVersion(header); err != nil {

@@ -293,6 +293,15 @@ func TestParseGroupsAndDiscounts(t *testing.T) {
 	}
 }
 
+func TestParseNotDatanorm(t *testing.T) {
+	t.Parallel()
+
+	_, err := Parse(strings.NewReader("hello;world\n"))
+	if !errors.Is(err, ErrNotDatanorm) {
+		t.Fatalf("error = %v, want ErrNotDatanorm", err)
+	}
+}
+
 func TestParseVersion4Rejected(t *testing.T) {
 	t.Parallel()
 

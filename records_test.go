@@ -160,9 +160,18 @@ func TestScanRejectsVersion4(t *testing.T) {
 func TestScanRejectsMissingHeader(t *testing.T) {
 	t.Parallel()
 
-	err := Scan(strings.NewReader(aRecord(map[int]string{2: "N", 3: "A-1"})), func(Record) error { return nil })
+	err := Scan(strings.NewReader(""), func(Record) error { return nil })
 	if !errors.Is(err, ErrMissingHeader) {
 		t.Fatalf("error = %v, want ErrMissingHeader", err)
+	}
+}
+
+func TestScanRejectsNonDatanorm(t *testing.T) {
+	t.Parallel()
+
+	err := Scan(strings.NewReader(aRecord(map[int]string{2: "N", 3: "A-1"})), func(Record) error { return nil })
+	if !errors.Is(err, ErrNotDatanorm) {
+		t.Fatalf("error = %v, want ErrNotDatanorm", err)
 	}
 }
 

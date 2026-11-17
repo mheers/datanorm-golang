@@ -1,0 +1,32 @@
+# Build output
+/bin/
+/dist/
+/datanorm
+datanorm.exe
+
+# Test and coverage output
+*.out
+*.test
+coverage.html
+coverage.txt
+
+# Editor and OS noise
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local environment
+.env
+.env.local
+
+# Sample supplier data must never be committed.
+DATANORM.*
+DATPREIS.*
+DATASETS.*
+*.RAB
+*.WRG
+!testdata/**/*.001
+!testdata/**/*.RAB
+!testdata/**/*.WRG

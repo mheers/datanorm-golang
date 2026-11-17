@@ -2,6 +2,9 @@ package datanorm
 
 import (
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -175,6 +178,74 @@ func TestEncodePrices(t *testing.T) {
 	}
 	if price, ok := article.Price(productdata.PriceNet); !ok || price.Amount.String() != "999.00 EUR" {
 		t.Fatalf("net price = %+v, %v", price, ok)
+	}
+}
+
+func TestEncodeLoadRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	catalog := sampleCatalog()
+	catalog.Groups = []productdata.Group{
+		{Level: productdata.GroupMain, ID: "ELE", Name: "Elektro"},
+		{Level: productdata.GroupProduct, ID: "KABEL", Name: "Kabel", ParentID: "ELE"},
+	}
+	catalog.DiscountGroups = []productdata.DiscountGroup{
+		{
+			ID:   "04",
+			Name: "Kabelrabatt",
+			Discounts: []productdata.Discount{
+				{Kind: productdata.DiscountPercent, Value: productdata.MustParseDecimal("20")},
+			},
+		},
+	}
+
+	dir := t.TempDir()
+	encoder := NewEncoder()
+	write := func(name string, encode func(*Encoder, io.Writer) error) string {
+		path := filepath.Join(dir, name)
+		file, err := os.Create(path)
+		if err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+		defer file.Close()
+		if err := encode(encoder, file); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		return path
+	}
+	ctx := context.Background()
+	articlePath := write("DATANORM.001", func(e *Encoder, w io.Writer) error {
+		return e.Encode(ctx, w, catalog, productdata.EncodeOptions{})
+	})
+	groupPath := write("DATANORM.WRG", func(e *Encoder, w io.Writer) error {
+		return e.EncodeGroups(ctx, w, catalog, productdata.EncodeOptions{})
+	})
+	discountPath := write("DATANORM.RAB", func(e *Encoder, w io.Writer) error {
+		return e.EncodeDiscounts(ctx, w, catalog, productdata.EncodeOptions{})
+	})
+	pricePath := write("DATPREIS.001", func(e *Encoder, w io.Writer) error {
+		return e.EncodePrices(ctx, w, catalog, productdata.EncodeOptions{})
+	})
+
+	loaded, err := Load(ctx, []string{pricePath, articlePath, groupPath, discountPath})
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loaded.Articles) != 1 {
+		t.Fatalf("articles = %d, want 1", len(loaded.Articles))
+	}
+	article := loaded.Articles[0]
+	if price, ok := article.Price(productdata.PriceNet); !ok || price.Amount.String() != "999.00 EUR" {
+		t.Fatalf("net price = %+v, %v", price, ok)
+	}
+	if group, ok := article.Group(productdata.GroupProduct); !ok || group.Name != "Kabel" {
+		t.Fatalf("product group = %+v, %v", group, ok)
+	}
+	if group, ok := article.Group(productdata.GroupDiscount); !ok || group.Name != "Kabelrabatt" {
+		t.Fatalf("discount group = %+v, %v", group, ok)
+	}
+	if !strings.Contains(article.Text(productdata.TextLong), "Beispieltext") {
+		t.Fatalf("long text = %q", article.Text(productdata.TextLong))
 	}
 }
 
